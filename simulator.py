@@ -1,6 +1,3 @@
-
-
-
 import json
 import math
 import random
@@ -233,7 +230,6 @@ class SpectrumSimulator:
 
         return points
 
-
     def calculate_metrics(self, points: List[float], bandwidth_khz: float) -> Dict:
         if not points:
             return {
@@ -262,12 +258,21 @@ class SpectrumSimulator:
             "occupied_bandwidth_khz": occupied_bw
         }
 
-    def local_rule_predict(self, payload: Dict) -> Dict:
+    def local_rule_predict(self, payload: Dict, thresholds: Dict = None) -> Dict:
         center_freq = float(payload.get("center_freq_mhz", 0))
         occupied_bw = float(payload.get("occupied_bandwidth_khz", 0))
         peak_power_dbm = float(payload.get("peak_power_dbm", -90))
         snr_db = float(payload.get("snr_db", 0))
         channel_model = str(payload.get("channel_model", "UNKNOWN"))
+
+        if thresholds is None:
+            thresholds = {
+                "alarm.power.threshold.dbm": -30.0,
+                "alarm.snr.threshold.db": 10.0
+            }
+
+        power_threshold = float(thresholds.get("alarm.power.threshold.dbm", -30.0))
+        snr_threshold = float(thresholds.get("alarm.snr.threshold.db", 10.0))
 
         if center_freq < 150:
             if occupied_bw >= 170:
@@ -295,9 +300,9 @@ class SpectrumSimulator:
         if channel_model in ("Rayleigh", "CarrierOffset", "SampleRateError"):
             confidence = max(0.60, round(confidence - 0.05, 2))
 
-        should_alarm = peak_power_dbm >= -30.0 or snr_db <= 10.0
+        should_alarm = peak_power_dbm >= power_threshold or snr_db <= snr_threshold
 
-        if peak_power_dbm >= -25.0 or snr_db <= 7.0:
+        if peak_power_dbm >= power_threshold + 5 or snr_db <= snr_threshold - 3:
             risk_level = "HIGH"
         elif should_alarm:
             risk_level = "MEDIUM"
@@ -311,12 +316,17 @@ class SpectrumSimulator:
             "should_alarm": should_alarm,
             "reason": reason,
             "model_name": "local-fallback-rule",
-            "source": "local-fallback"
+            "source": "local-fallback",
+            "thresholds": {
+                "power_alarm_threshold_dbm": power_threshold,
+                "snr_alarm_threshold_db": snr_threshold,
+                "source": "sys_config-fallback"
+            }
         }
 
-    def predict_with_ai(self, payload: Dict) -> Dict:
+    def predict_with_ai(self, payload: Dict, thresholds: Dict) -> Dict:
         if not AI_SERVICE_CONFIG["enabled"]:
-            return self.local_rule_predict(payload)
+            return self.local_rule_predict(payload, thresholds)
 
         url = AI_SERVICE_CONFIG["base_url"].rstrip("/") + AI_SERVICE_CONFIG["predict_path"]
         timeout = AI_SERVICE_CONFIG["timeout_seconds"]
@@ -327,7 +337,7 @@ class SpectrumSimulator:
             result = response.json()
 
             if result.get("code") != 200 or not result.get("data"):
-                return self.local_rule_predict(payload)
+                return self.local_rule_predict(payload, thresholds)
 
             data = result["data"]
             return {
@@ -340,7 +350,7 @@ class SpectrumSimulator:
                 "source": "flask-ai"
             }
         except Exception:
-            return self.local_rule_predict(payload)
+            return self.local_rule_predict(payload, thresholds)
 
     def insert_snapshot(self, cursor, task: Dict, state: Dict, thresholds: Dict) -> Dict:
         bandwidth_khz = float(task["sample_rate_khz"])
@@ -366,7 +376,7 @@ class SpectrumSimulator:
             "power_points": power_points
         }
 
-        ai_result = self.predict_with_ai(ai_payload)
+        ai_result = self.predict_with_ai(ai_payload, thresholds)
         ai_label = ai_result["predicted_label"]
 
         power_threshold = thresholds["alarm.power.threshold.dbm"]
@@ -440,7 +450,6 @@ class SpectrumSimulator:
             "capture_time": now_text,
             "create_time": now_text
         }
-
 
     def maybe_insert_alarm(self, cursor, task: Dict, snapshot_info: Dict, thresholds: Dict):
         task_id = task["task_id"]
@@ -574,6 +583,7 @@ class SpectrumSimulator:
             REDIS_CONFIG["latest_realtime_ttl_seconds"],
             text
         )
+
     def update_station_online_cache(self, station_id: int):
         if not self.redis_client:
             return
@@ -583,7 +593,6 @@ class SpectrumSimulator:
             REDIS_CONFIG["station_online_ttl_seconds"],
             "1"
         )
-
 
     def refresh_unread_alarm_cache(self, cursor):
         if not self.redis_client:
@@ -635,7 +644,6 @@ class SpectrumSimulator:
                         f"snr={snapshot_info['snr_db']}dB "
                         f"alarm={snapshot_info['alarm_flag']}"
                     )
-
 
             self.conn.commit()
 
