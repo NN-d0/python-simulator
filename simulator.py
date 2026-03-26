@@ -406,6 +406,18 @@ class SpectrumSimulator:
         }
         return mapping.get(channel_model, "AWGN")
 
+    def normalize_task_algorithm_mode(self, algorithm_mode: str) -> str:
+        mode = str(algorithm_mode or "RULE").strip().upper()
+        if mode == "AI":
+            return "CNN"
+        if mode == "CNN":
+            return "CNN"
+        return "RULE"
+
+    def resolve_model_type(self, task: Dict) -> str:
+        algorithm_mode = self.normalize_task_algorithm_mode(task.get("algorithm_mode"))
+        return "cnn" if algorithm_mode == "CNN" else "rule"
+
     def build_report_payload(self, task: Dict, state: Dict) -> Dict:
         bandwidth_khz = float(task["sample_rate_khz"])
         points_count = SIMULATOR_CONFIG["points_count"]
@@ -422,6 +434,7 @@ class SpectrumSimulator:
         )
 
         capture_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        model_type = self.resolve_model_type(task)
 
         payload = {
             "stationId": int(task["station_id"]),
@@ -437,8 +450,8 @@ class SpectrumSimulator:
             "powerPoints": power_points,
             "waterfallRow": power_points,
             "captureTime": capture_time,
-            # 关键新增：通知 Core 优先走 CNN，并把 IQ 一起带上
-            "modelType": "cnn",
+            # 关键修正：严格跟随任务表 algorithm_mode，RULE -> rule，CNN -> cnn
+            "modelType": model_type,
             "iPoints": i_points,
             "qPoints": q_points
         }
@@ -517,6 +530,8 @@ class SpectrumSimulator:
                         f"snapshotId={response_data.get('snapshotId')} "
                         f"alarm={response_data.get('alarmFlag')} "
                         f"ai={response_data.get('aiLabel')} "
+                        f"algorithmMode={self.normalize_task_algorithm_mode(task.get('algorithm_mode'))} "
+                        f"modelType={payload['modelType']} "
                         f"taskStatus={response_data.get('taskStatus')}"
                     )
 
@@ -533,7 +548,7 @@ class SpectrumSimulator:
         print(f"MySQL(只读任务): {DB_CONFIG['host']}:{DB_CONFIG['port']} / {DB_CONFIG['database']}")
         print(f"Core上报地址: {CORE_API_CONFIG['base_url']}{CORE_API_CONFIG['report_path']}")
         print(f"上报周期: {interval} 秒")
-        print("当前模式：仿真器上报 power_points + i_points + q_points，Core 优先调用 CNN 模式")
+        print("当前模式：仿真器上报 power_points + i_points + q_points，并严格跟随任务 algorithm_mode 选择 RULE/CNN")
         print("按 Ctrl + C 停止")
         print("=====================================================")
 
