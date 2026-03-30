@@ -8,7 +8,7 @@ DB_CONFIG = {
 }
 
 SIMULATOR_CONFIG = {
-    # 第二阶段优化：把频谱上报节奏从 3 秒提升到 1 秒
+
     "interval_seconds": 1,
     "points_count": 64,
     "verbose": True

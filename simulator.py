@@ -20,7 +20,7 @@ class SpectrumSimulator:
     2. 只对 task_status = 1 的任务生成频谱
     3. 生成 power_points + i_points + q_points
     4. 通过 HTTP 上报给 Core
-    5. Core 再统一调用 Flask AI，并可根据 model_type 走 CNN / rule
+    5. Core 再统一调用 Flask AI，并可根据 task.algorithm_mode / model_type 走 RULE / CNN / AUTO
     """
 
     def __init__(self):
@@ -29,7 +29,7 @@ class SpectrumSimulator:
         self.http = requests.Session()
 
     # =========================
-    # 数据库连接（只用于读取任务）
+    # 数据库连接
     # =========================
     def connect(self):
         self.conn = pymysql.connect(
@@ -89,7 +89,7 @@ class SpectrumSimulator:
                 print(f"[INFO] task={task_id} 已不在运行中，已清理本地仿真状态。")
 
     # =========================
-    # 仿真状态初始化 / 演化
+    # 仿真状态初始化
     # =========================
     def get_task_state(self, task: Dict) -> Dict:
         task_id = int(task["task_id"])
@@ -239,7 +239,7 @@ class SpectrumSimulator:
         }
 
     # =========================
-    # I/Q 序列生成（最小可用版）
+    # I/Q 序列生成
     # =========================
     def generate_random_message(self, seq_len: int) -> List[float]:
         msg = []
@@ -412,11 +412,17 @@ class SpectrumSimulator:
             return "CNN"
         if mode == "CNN":
             return "CNN"
+        if mode == "AUTO":
+            return "AUTO"
         return "RULE"
 
     def resolve_model_type(self, task: Dict) -> str:
         algorithm_mode = self.normalize_task_algorithm_mode(task.get("algorithm_mode"))
-        return "cnn" if algorithm_mode == "CNN" else "rule"
+        if algorithm_mode == "CNN":
+            return "cnn"
+        if algorithm_mode == "AUTO":
+            return "auto"
+        return "rule"
 
     def build_report_payload(self, task: Dict, state: Dict) -> Dict:
         bandwidth_khz = float(task["sample_rate_khz"])
@@ -436,6 +442,12 @@ class SpectrumSimulator:
         capture_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         model_type = self.resolve_model_type(task)
 
+        # print("DEBUG modelType =", model_type)
+        # print("DEBUG i_points type =", type(i_points).__name__, "len =", 0 if i_points is None else len(i_points))
+        # print("DEBUG q_points type =", type(q_points).__name__, "len =", 0 if q_points is None else len(q_points))
+        # print("DEBUG i_points preview =", None if not i_points else i_points[:5])
+        # print("DEBUG q_points preview =", None if not q_points else q_points[:5])
+
         payload = {
             "stationId": int(task["station_id"]),
             "deviceId": int(task["device_id"]),
@@ -450,7 +462,6 @@ class SpectrumSimulator:
             "powerPoints": power_points,
             "waterfallRow": power_points,
             "captureTime": capture_time,
-            # 关键修正：严格跟随任务表 algorithm_mode，RULE -> rule，CNN -> cnn
             "modelType": model_type,
             "iPoints": i_points,
             "qPoints": q_points
@@ -548,7 +559,7 @@ class SpectrumSimulator:
         print(f"MySQL(只读任务): {DB_CONFIG['host']}:{DB_CONFIG['port']} / {DB_CONFIG['database']}")
         print(f"Core上报地址: {CORE_API_CONFIG['base_url']}{CORE_API_CONFIG['report_path']}")
         print(f"上报周期: {interval} 秒")
-        print("当前模式：仿真器上报 power_points + i_points + q_points，并严格跟随任务 algorithm_mode 选择 RULE/CNN")
+        print("当前模式：仿真器上报 power_points + i_points + q_points，并严格跟随任务 algorithm_mode 选择 RULE/CNN/AUTO")
         print("按 Ctrl + C 停止")
         print("=====================================================")
 
