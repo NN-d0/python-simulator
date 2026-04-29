@@ -442,12 +442,6 @@ class SpectrumSimulator:
         capture_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         model_type = self.resolve_model_type(task)
 
-        # print("DEBUG modelType =", model_type)
-        # print("DEBUG i_points type =", type(i_points).__name__, "len =", 0 if i_points is None else len(i_points))
-        # print("DEBUG q_points type =", type(q_points).__name__, "len =", 0 if q_points is None else len(q_points))
-        # print("DEBUG i_points preview =", None if not i_points else i_points[:5])
-        # print("DEBUG q_points preview =", None if not q_points else q_points[:5])
-
         payload = {
             "stationId": int(task["station_id"]),
             "deviceId": int(task["device_id"]),
